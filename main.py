@@ -32,30 +32,10 @@ categorical_list =['material', 'state', 'product_type', 'sub_area', 'thermal_pow
                    'ID_big_road2', 'railroad_1line', 'ID_railroad_terminal', 'ID_bus_terminal', 'ecology']
 categorical_data = data_train.loc[:,categorical_list]
 
+delete_list = categorical_list + ['id', 'timestamp', 'culture_objects_top_25']
+numerical_data = X.copy()
+for item in delete_list:
+    del numerical_data[item]
 
-
-'''From the original feature matrix, get rid of the categorical columns and 
-columns that are unnecessary'''
-X_copy = X.copy()
-get_rid_of_list = categorical_list + ['id', 'timestamp', 'culture_objects_top_25']
-for i in get_rid_of_list:
-    del X_copy[i]
-
-missing_data_copy = X_copy.isnull().sum()
-
-'''This is the label, or y data'''
-target_data = data_train.iloc[:, -1]
-'''The first step is to get rid of data with NaN values and see if we still
-have enough dataset to work with.
-
-Update 10/03
-
-Not sure if this is a good idea since it gets rid of too many data points
-'''
-
-#filtered_data_train = data_train.dropna(axis = 0)
-#filtered_data_test = data_test.dropna(axis = 0)
-
-'''Separate the train data into feature and X, and then split it into train/test set'''
-#X = filtered_data_train.iloc[:, :291]
-#y = filtered_data_train.iloc[:, -1]
+'''For some numbers, the data cannot take decimal points. In this case, we might have to use
+median instead of mean for imputation'''
