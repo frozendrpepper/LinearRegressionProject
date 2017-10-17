@@ -25,15 +25,13 @@ y = data_train.iloc[:, 291]
 id_timestamp_data = data_train.loc[:, ['id', 'timestamp']]
 
 '''Categorical data preprocessing'''
-categorical_list =['material', 'state', 'product_type', 'sub_area', 'thermal_power_plant_raion', 'incineration_raion',
-                   'oil_chemistry_raion', 'radiation_raion', 'railroad_terminal_raion', 'big_market_raion',
-                   'nuclear_reactor_raion', 'detention_facility_raion', 'ID_metro', 'ID_railroad_station_walk',
+categorical_list =['material', 'state', 'product_type', 'sub_area', 'ID_metro', 'ID_railroad_station_walk',
                    'ID_railroad_station_avto', 'water_1line', 'ID_big_road1', 'big_road1_1line',
                    'ID_big_road2', 'railroad_1line', 'ID_railroad_terminal', 'ID_bus_terminal', 'ecology']
 categorical_data = data_train.loc[:,categorical_list]
 
 delete_list = categorical_list + ['id', 'timestamp', 'culture_objects_top_25', 'metro_min_avto', 'metro_min_walk',
-                                  'railroad_station_walk_min', 'railraod_station_avto_min', 
+                                  'railroad_station_walk_min', 'railroad_station_avto_min', 
                                   'public_transport_station_min_walk']
 numerical_data = X.copy()
 for item in delete_list:
