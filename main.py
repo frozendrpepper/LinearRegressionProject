@@ -32,7 +32,10 @@ categorical_data = data_train.loc[:,categorical_list]
 
 delete_list = categorical_list + ['id', 'timestamp', 'culture_objects_top_25', 'metro_min_avto', 'metro_min_walk',
                                   'railroad_station_walk_min', 'railroad_station_avto_min', 
-                                  'public_transport_station_min_walk']
+                                  'public_transport_station_min_walk', 'thermal_power_plant_raion', 
+                                  'incineration_raion', 'oil_chemistry_raion', 'radiation_raion', 
+                                  'railroad_terminal_raion', 'big_market_raion', 'nuclear_reactor_raion', 
+                                  'detention_facility_raion']
 numerical_data = X.copy()
 for item in delete_list:
     del numerical_data[item]
