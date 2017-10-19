@@ -19,22 +19,50 @@ def mode(a):
     u, c = np.unique(a, return_counts=True)
     return u[c.argmax()]
 
-def build_year_impute(fnc):
+def build_year_sub_area_impute(fnc, data, clf = None, mapping = None):
      '''A lot of these codes are there to modify the data format so that methods
      function properly'''
-     class_le = LabelEncoder()
-     sub_area_le = nom_categorical_data['sub_area'].values
-     sub_area_le = np.array([class_le.fit_transform(sub_area_le)]).T
-     sub_area_le = pd.DataFrame(sub_area_le)
+     if clf == None:
+         class_le = LabelEncoder()
+         '''Input to label encoder has to a numpy array and the returned object from fit_transform
+         is a simple array object of size (21570,). This is then converted to a DataFrame object
+         so I can concat it with build year data column'''
+         sub_area_le = pd.DataFrame(class_le.fit_transform(data))
+     else:
+         class_le = clf
+         sub_area_le = pd.DataFrame(class_le.transform(data))
+     
+     '''Simple concatanation and relabeling the columns. First column contains the encoded 
+     sub_area information while the second column contains the build_year information'''
      build_year_impute_df = pd.concat([sub_area_le, data_train['build_year']], axis = 1)
      build_year_impute_df.columns = ['sub_area', 'build_year']
+
      '''Thish groups the dataframe via sub_area and applies mode function'''
+     '''Explanation for this code is here:
+     https://stackoverflow.com/questions/30482071/how-to-calculate-mean-values-grouped-on-another-column-in-pandas'''
      build_year_impute_df_group = build_year_impute_df.groupby('sub_area', as_index = False)['build_year'].apply(fnc)
     
-     '''Some data is even missing even at this point. I'll just impute with median le sigh'''
-     temp2 = build_year_impute_df_group[build_year_impute_df_group < 100]
-     build_year_impute_df_group[list(temp2.index)] = build_year_impute_df_group.median()
-     return build_year_impute_df_group, build_year_impute_df
+     '''build_year_impute_df_group at this point contains the mode corresponding to encoded sub_area
+     Now we filterd out the data that are empty and just impute them with the median value'''
+     comparison_df = build_year_impute_df_group[build_year_impute_df_group < 100]
+     build_year_impute_df_group[list(comparison_df.index)] = build_year_impute_df_group.median()
+
+     '''The build_year_mapping is for mapping in the conditional statement. This part took me hours to figure out'''
+     '''row_index returns a list containg True or False depending on wehther the column
+     values of build_year is nan or not. The reference for this code are
+     https://stackoverflow.com/questions/18196203/how-to-conditionally-update-dataframe-column-in-pandas
+     and data preprocessing portion of Sebastian Raschka's book'''
+     if mapping == None:
+         build_year_mapping = pd.Series.to_dict(build_year_impute_df_group)
+         row_index = build_year_impute_df.build_year.isnull()
+         build_year_impute_df.loc[row_index, 'build_year'] = build_year_impute_df.loc[row_index, 'sub_area'].map(build_year_mapping)
+         return build_year_mapping, build_year_impute_df, sub_area_le, class_le
+     else:
+         build_year_mapping = mapping
+         row_index = build_year_impute_df.build_year.isnull()
+         build_year_impute_df.loc[row_index, 'build_year'] = build_year_impute_df.loc[row_index, 'sub_area'].map(build_year_mapping)
+         return build_year_impute_df, sub_area_le, class_le
+     
 
 '''Import the train and test data set'''
 data_train = pd.read_csv('train.csv')
@@ -57,24 +85,29 @@ categorical_list =['material', 'product_type', 'sub_area', 'ID_metro', 'ID_railr
                    'railroad_terminal_raion', 'big_market_raion', 'nuclear_reactor_raion', 
                    'detention_facility_raion', 'water_1line', 'big_road1_1line', 'railroad_1line', 
                    'culture_objects_top_25']
-ord_categorical_data = data_train['state']
+ord_categorical_data = pd.DataFrame(data_train['state'])
 ord_categorical_data_missing = ord_categorical_data.isnull().sum()
 nom_categorical_data = data_train.loc[:, categorical_list]
 nom_categorical_data_missing = nom_categorical_data.isnull().sum()
 
 '''Imputing categorical data'''
-'''Let us first work on build year imputation. Fill it in with the most commonly
-occuring build year in that sub_area'''
-#build_year_filter, build_year_impute_df = build_year_impute(mode)
-#build_year_mapping = pd.Series.to_dict(build_year_filter)
-#build_year_impute_df['build_year_filter'] = np.where(str(build_year_impute_df['build_year'])=='nan', build_year_mapping[build_year_impute_df['sub_area']], build_year_impute_df['build_year'])
+'''Let us first work on build year and sub_area imputation. Fill it in with the most commonly
+occuring build year in that sub_area as per idea of:
+https://www.r-bloggers.com/a-data-scientists-guide-to-predicting-housing-prices-in-russia/'''
+build_year_mapping, build_year_sub_area_impute_df, sub_area_df, clf = build_year_sub_area_impute(mode, nom_categorical_data['sub_area'].values)
 
 
-    
+'''Next up is the state imputation which uses the information on build_year and sub_area
+data that was just imputed. I guess we could do a small regression. The reference confirming that
+multiple regression imputation is okay is given by: https://measuringu.com/handle-missing-data/'''
+ohe = OneHotEncoder(categorical_features = [0])
+build_year_sub_area_impute_encoded_df = build_year_sub_area_impute_df.copy()
+ohe.fit_transform(build_year_sub_area_impute_encoded_df).toarray()
+
+#state_impute_df = pd.concat([ord_categorical_data, build_year_sub_area_impute_df], axis = 1)
+#state_missing = state_impute_df.isnull().sum()
 
 
-#ohe = OneHotEncoder()
-#temp3  = ohe.fit_transform(temp2).toarray()
 
 
 '''Compile numerical data'''
