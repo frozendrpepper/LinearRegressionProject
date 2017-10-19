@@ -6,7 +6,8 @@ Created on Tue Oct  3 00:52:59 2017
 """
 from sklearn.cross_validation import KFold, StratifiedKFold
 from sklearn.preprocessing import StandardScaler
-from sklearn.linear_model import LinearRegression, Lasso, Ridge, ElasticNet
+from sklearn.linear_model import LinearRegression, Lasso, Ridge, ElasticNet, LogisticRegression
+from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import Imputer, OneHotEncoder, LabelEncoder
 
 import statsmodels.api as sm
@@ -27,14 +28,14 @@ def build_year_sub_area_impute(fnc, data, clf = None, mapping = None):
          '''Input to label encoder has to a numpy array and the returned object from fit_transform
          is a simple array object of size (21570,). This is then converted to a DataFrame object
          so I can concat it with build year data column'''
-         sub_area_le = pd.DataFrame(class_le.fit_transform(data))
+         sub_area_le = pd.DataFrame(class_le.fit_transform(data_train['sub_area']))
      else:
          class_le = clf
-         sub_area_le = pd.DataFrame(class_le.transform(data))
+         sub_area_le = pd.DataFrame(class_le.transform(data_train['sub_area']))
      
      '''Simple concatanation and relabeling the columns. First column contains the encoded 
      sub_area information while the second column contains the build_year information'''
-     build_year_impute_df = pd.concat([sub_area_le, data_train['build_year']], axis = 1)
+     build_year_impute_df = pd.concat([sub_area_le, data['build_year']], axis = 1)
      build_year_impute_df.columns = ['sub_area', 'build_year']
 
      '''Thish groups the dataframe via sub_area and applies mode function'''
@@ -90,11 +91,16 @@ ord_categorical_data_missing = ord_categorical_data.isnull().sum()
 nom_categorical_data = data_train.loc[:, categorical_list]
 nom_categorical_data_missing = nom_categorical_data.isnull().sum()
 
+'''Apparently, build_year data has some data that needs to be handled
+https://stackoverflow.com/questions/21608228/conditional-replace-pandas'''
+data_train.loc[ (data_train.build_year > 2015) | (data_train.build_year < 1600 ), 'build_year'] = np.nan
+
+
 '''Imputing categorical data'''
 '''Let us first work on build year and sub_area imputation. Fill it in with the most commonly
 occuring build year in that sub_area as per idea of:
 https://www.r-bloggers.com/a-data-scientists-guide-to-predicting-housing-prices-in-russia/'''
-build_year_mapping, build_year_sub_area_impute_df, sub_area_df, clf = build_year_sub_area_impute(mode, nom_categorical_data['sub_area'].values)
+build_year_mapping, build_year_sub_area_impute_df, sub_area_df, clf = build_year_sub_area_impute(mode, data_train)
 
 
 '''Next up is the state imputation which uses the information on build_year and sub_area
@@ -102,10 +108,20 @@ data that was just imputed. I guess we could do a small regression. The referenc
 multiple regression imputation is okay is given by: https://measuringu.com/handle-missing-data/'''
 ohe = OneHotEncoder(categorical_features = [0])
 build_year_sub_area_impute_encoded_df = build_year_sub_area_impute_df.copy()
-ohe.fit_transform(build_year_sub_area_impute_encoded_df).toarray()
+build_year_sub_area_impute_encoded_df = pd.DataFrame(ohe.fit_transform(build_year_sub_area_impute_encoded_df).toarray())
 
-#state_impute_df = pd.concat([ord_categorical_data, build_year_sub_area_impute_df], axis = 1)
-#state_missing = state_impute_df.isnull().sum()
+
+state_impute_df = pd.concat([build_year_sub_area_impute_encoded_df, ord_categorical_data], axis = 1)
+state_missing = state_impute_df.isnull().sum()
+
+state_impute_aug_df = sm.add_constant(state_impute_df)
+state_impute_aug_drop_df = state_impute_aug_df.dropna()
+state_impute_dfx = state_impute_aug_drop_df.iloc[:, :148]
+state_impute_dfy = pd.DataFrame(state_impute_aug_drop_df.iloc[:, -1])
+
+state_impute_model = sm.OLS(state_impute_dfy, state_impute_dfx)
+state_impute_result = state_impute_model.fit()
+print(state_impute_result.summary())
 
 
 
