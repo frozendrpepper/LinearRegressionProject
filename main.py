@@ -7,7 +7,7 @@ Created on Tue Oct  3 00:52:59 2017
 from sklearn.cross_validation import KFold, StratifiedKFold
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LinearRegression, Lasso, Ridge, ElasticNet, LogisticRegression
-from sklearn.model_selection import train_test_split
+from sklearn.cross_validation import train_test_split
 from sklearn.preprocessing import Imputer, OneHotEncoder, LabelEncoder
 
 import statsmodels.api as sm
@@ -111,19 +111,16 @@ build_year_sub_area_impute_encoded_df = build_year_sub_area_impute_df.copy()
 build_year_sub_area_impute_encoded_df = pd.DataFrame(ohe.fit_transform(build_year_sub_area_impute_encoded_df).toarray())
 
 
-state_impute_df = pd.concat([build_year_sub_area_impute_encoded_df, ord_categorical_data], axis = 1)
+state_impute_df = pd.concat([build_year_sub_area_impute_encoded_df,  
+                              ord_categorical_data], axis = 1)
 state_missing = state_impute_df.isnull().sum()
 
-state_impute_aug_df = sm.add_constant(state_impute_df)
-state_impute_aug_drop_df = state_impute_aug_df.dropna()
-state_impute_dfx = state_impute_aug_drop_df.iloc[:, :148]
-state_impute_dfy = pd.DataFrame(state_impute_aug_drop_df.iloc[:, -1])
 
-state_impute_model = sm.OLS(state_impute_dfy, state_impute_dfx)
-state_impute_result = state_impute_model.fit()
-print(state_impute_result.summary())
-
-
+state_impute_drop_df = state_impute_df.dropna()
+'''One of the data point is kinda funky, get rid of it'''
+#state_impute_funky_index = state_impute_drop_df.state[state_impute_drop_df.state == 33].index.tolist()
+state_impute_drop_df.loc[7134, 'state'] = np.nan
+state_impute_drop_df = state_impute_drop_df.dropna()
 
 
 '''Compile numerical data'''
