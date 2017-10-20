@@ -70,7 +70,28 @@ occuring build year in that sub_area'''
 #build_year_impute_df['build_year_filter'] = np.where(str(build_year_impute_df['build_year'])=='nan', build_year_mapping[build_year_impute_df['sub_area']], build_year_impute_df['build_year'])
 
 
-    
+mapping = {'yes' : 1, 'no' : 0}
+       
+data_train['railroad_1line'].map(mapping)
+data_train['big_road1_1line'].map(mapping)
+data_train['water_1line'].map(mapping)
+data_train['detention_facility_raion'].map(mapping)
+data_train['nuclear_reactor_raion'].map(mapping)
+data_train['big_market_raion'].map(mapping)
+data_train['railroad_terminal_raion'].map(mapping)
+data_train['radiation_raion'].map(mapping) 
+data_train['oil_chemistry_raion'].map(mapping)
+data_train['incineration_raion'].map(mapping) 
+data_train['thermal_power_plant_raion'].map(mapping) 
+data_train['culture_objects_top_25'].map(mapping) 
+
+ohe = OneHotEncoder()
+kk = data_train['product_type']
+s = pd.Series(list(kk))
+dum = pd.get_dummies(s)
+ohe.fit(dum)
+ohe.n_values_, ohe.feature_indices_, ohe.active_features_
+ohe.transform(dum).toarray()
 
 
 #ohe = OneHotEncoder()
