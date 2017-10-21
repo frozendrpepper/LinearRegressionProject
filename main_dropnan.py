@@ -20,7 +20,12 @@ import numpy as np
 import pandas as pd
 import matplotlib.pylab as plt
 
- 
+def convert_column(data_train):
+     data_train_columns = list(data_train.columns.values)
+     for i in range(len(data_train_columns)):
+         if '-' in data_train_columns[i]:
+             data_train_columns[i] = data_train_columns[i].replace('-', '_')
+     return data_train_columns
     
 def label_encoding(X):
     '''Label Encoding and mapping'''
@@ -63,6 +68,11 @@ def VIF_analysis(X):
      
 '''Import the train and test data set'''
 data_train = pd.read_csv('train.csv')
+
+'''Some of the column names contain - signs which crashes the OLS algorithm'''
+'''https://www.tutorialspoint.com/python/string_replace.htm'''
+data_train_columns = convert_column(data_train)
+data_train.columns = data_train_columns
 
 X = data_train.iloc[:, 2:291]
 y = data_train.iloc[:, 291]
@@ -113,15 +123,16 @@ for item in filter_list:
 X_drop = pd.concat([X_drop[numeric_list], X_drop[ord_categorical_list], 
                     X_drop[nom_categorical_list], X_drop[target]], axis = 1)
 
-'''Apply scaling to numeric value'''
-#sc = StandardScaler()
-#X_drop[numeric_list] = sc.fit_transform(X_drop[numeric_list])
+'''Apply scaling to numeric value and declare a variable for the new standardized matrix'''
+sc = StandardScaler()
+X_drop_sc = X_drop[:]
+X_drop_sc[numeric_list] = sc.fit_transform(X_drop_sc[numeric_list])
 
 '''VIF analysis for features that are highly correlated'''
-vif_metro = VIF_analysis(X_drop[['metro_min_avto', 'metro_km_avto', 'metro_km_walk', 'metro_min_walk']])
-vif_railroad_avto = VIF_analysis(X_drop[['railroad_station_avto_min', 'railroad_station_avto_km']])
-vif_railroad_walk = VIF_analysis(X_drop[['railroad_station_walk_min', 'railroad_station_walk_km']])
-vif_population = VIF_analysis(X_drop[['raion_popul', 'children_school', 'children_preschool', 'full_all', 'male_f', 
+vif_metro = VIF_analysis(X_drop_sc[['metro_min_avto', 'metro_km_avto', 'metro_km_walk', 'metro_min_walk']])
+vif_railroad_avto = VIF_analysis(X_drop_sc[['railroad_station_avto_min', 'railroad_station_avto_km']])
+vif_railroad_walk = VIF_analysis(X_drop_sc[['railroad_station_walk_min', 'railroad_station_walk_km']])
+vif_population = VIF_analysis(X_drop_sc[['raion_popul', 'children_school', 'children_preschool', 'full_all', 'male_f', 
                            'female_f', 'young_all', 'young_male', 'young_female', 'work_all', 'work_male', 
                            'work_female', 'ekder_all', 'ekder_male', 'ekder_female', '0_6_all', '0_6_male', 
                            '0_6_female', '7_14_all', '7_14_male', '7_14_female', '0_17_all', '0_17_male', 
@@ -129,8 +140,9 @@ vif_population = VIF_analysis(X_drop[['raion_popul', 'children_school', 'childre
                            '0_13_female']])
 
 '''Based on VIF analysis following features will be dropped'''
-vif_delete_list = list(vif_metro.loc[vif_metro['VIF Factor'] > 100, 'features']) + \
-                  list(vif_population.loc[vif_population['VIF Factor'] > 10**7 , 'features'])
+vif_delete_list = list(vif_metro.loc[vif_metro['VIF Factor'] > 30, 'features']) + \
+                  list(vif_population.loc[vif_population['VIF Factor'] > 10**7 , 'features']) + \
+                  ['railroad_station_avto_km', 'railroad_station_walk_km']
 
 '''Drop above features from X_drop and update the numeric list'''
 '''https://stackoverflow.com/questions/28538536/deleting-multiple-columns-in-pandas'''
@@ -140,30 +152,43 @@ for item in vif_delete_list:
     numeric_list_vif.remove(item)
 
 '''Compile a string that will be fed into sm.OLS.from_formula'''
-numeric_ord_cat_OLS_string = " + ".join(numeric_list_vif + ord_categorical_list)
+'''Certain features have to be combined, so I'll take care of them first'''
+spec_handle_cat = ['ID_metro', 'ID_railroad_station_walk', 'ID_railroad_station_avto', 'water_1line',
+                   'ID_big_road1', 'ID_big_road2', 'ID_railroad_terminal', 'ID_bus_terminal']
+spec_handle_real = ['metro_min_avto', 'railroad_station_walk_min', 'railroad_station_avto_min', 
+                    'water_km', 'big_road1_km', 'big_road2_km', 'railroad_km', 'bus_terminal_avto_km']
+    
+'''This is for special combined continuous and category list'''
+spec_handle_list = []
+for cat, real in zip(spec_handle_cat, spec_handle_real):
+    spec_handle_list.append("C(" + cat + "):" + real)
+'''Don't forget to add this!'''
+spec_handle_string = " + ".join(spec_handle_list)
 
+'''Get rid of values that were used in the special combined variable'''
+numeric_list_OLS = numeric_list_vif[:]
+nom_list_OLS = nom_categorical_list[:]
+for cat, real in zip(spec_handle_cat, spec_handle_real):
+    numeric_list_OLS.remove(real)
+    nom_list_OLS.remove(cat)
+ 
+'''Handling numeric and ord categorical information. Add this too!'''
+numeric_ord_cat_OLS_string = " + ".join(numeric_list_OLS + ord_categorical_list)
+
+'''Handling the nominal categorical information with C()'''
 category_OLS_list = []
-for item in nom_categorical_list:
+for item in nom_list_OLS:
     category_OLS_list.append("C(" + item + ")")
 category_OLS_string = " + ".join(category_OLS_list) 
 
-OLS_string = numeric_ord_cat_OLS_string + " + " + category_OLS_string + " + 0"
+'''This is the total string'''
+OLS_string = spec_handle_string + " + " + numeric_ord_cat_OLS_string + " + " + category_OLS_string
 
 
 '''Finally first OLS run'''
 '''
-OLS_data = pd.concat([X_drop, ])
-model1 = sm.OLS.from_formula("MEDV ~ "
-                             "CRIM + ZN + INDUS + NOX + RM + AGE + "
-                             "DIS + RAD + TAX + PTRATIO + B + LSTAT + CHAS", 
-                             data=df)
+OLS_string_final = "price_doc ~ " + OLS_string
+model1 = sm.OLS.from_formula(OLS_string_final, data=X_drop)
 result1 = model1.fit()
 print(result1.summary())
-
-
-id_ = pd.DataFrame([1, 2, 3, 1], columns=['id'])
-km_ = pd.DataFrame([5, 5, 5, 4], columns=['km'])
-df = pd.concat([id_, km_], axis = 1)
-
-dmatrix("C(id):km", data=df)
 '''
