@@ -73,23 +73,41 @@ def p_value_extract(result, confidence):
     p_values['p_value'] = p_values[p_values.p_value < confidence]
     p_values = p_values.dropna().sort_values('p_value')
     return p_values
+
     
-def OLS_analysis(dfX, dfY, confidence, r2_compile = [], p_prev = 0):
+def OLS_analysis(dfX, dfY, confidence, p_prev = 0, num_feature_compile = [], r2_compile = []):
+    '''Function basically computes the result based on input dfX and dfY.
+    Since this function will run multiple times for feature extraction, the
+    adjusted R2 values are compiled for comparsion and the number of features
+    that survive the p-value test is compared to the number from previous
+    iteration. If the number of features cease to decrease, the analysis
+    will terminate as well.'''
+    end_loop = True
     model = sm.OLS(dfY, dfX)
     result = model.fit()
     r2_compile.append(result.rsquared_adj)
     
     p = p_value_extract(result, confidence)
     p_shape = p.shape[0]
-    if int(p_prev) == int(p_shape):
-        return dfX, r2_compile, result
-    p_prev - p_shape
-
-    '''Rerun the OLS with extracted features'''
+    if int(p_shape) == int(p_prev):
+        end_loop = False
+    num_feature_compile.append(p.shape)
+  
     extracted_feature = list(p.index.values)
     dfX_extract = dfX.loc[:, extracted_feature]
-    return OLS_analysis(dfX_extract, dfY, confidence, r2_compile, p_prev)
-     
+    return dfX_extract, result, r2_compile, num_feature_compile, p_shape, end_loop
+
+def num_cat_divider(X, feature):
+    X_numeric, X_cat = [], []
+    for item in feature:
+        if item == 'state' or item == 'floor':
+            X_cat.append(item)
+        elif len(X[item].unique()) > 2:
+            X_numeric.append(item)
+        else:
+            X_cat.append(item)
+    return X[X_numeric], X[X_cat]
+  
 '''Import the train and test data set'''
 data_train = pd.read_csv('train.csv')
 
@@ -193,11 +211,59 @@ OLS_string = numeric_ord_cat_OLS_string + " + " + category_OLS_string
 '''Create a dmatrix for encoding and extract the column variables so they can
 be used to access features with low p values'''
 '''https://stackoverflow.com/questions/23560104/fetching-names-from-designmatrix-in-patsy'''
-dfX = dmatrix(OLS_string, data = X_drop_sc)
+dfX = dmatrix(OLS_string, data = X_drop)
 dfX_columns = dfX.design_info.column_names
 dfX = pd.DataFrame(dfX, columns = dfX_columns)
 
 dfY = pd.DataFrame(X_drop_sc['price_doc'])
 
-'''Finally first OLS run'''
-dfX_ex, r2_compile, result_ex = OLS_analysis(dfX, dfY, 0.01)
+'''Feature extraction via multiple OLS runs'''
+dfX2, result, r2_compile, num_feature_compile, p_shape, end_loop= OLS_analysis(dfX, dfY, 0.01)
+while end_loop:
+    dfX2, result, r2_compile, num_feature_compile, p_shape, end_loop = OLS_analysis(dfX2, dfY, 0.01, p_shape, r2_compile)
+OLS_feature_extracted = list(dfX2.columns.values)
+print(result.summary())
+
+'''Outlier extraction'''
+influence = result.get_influence()
+cooks_d2, pvals = influence.cooks_distance
+fox_cr = 4 / (len(y) - 2)
+idx = np.where(cooks_d2 > fox_cr)[0]
+
+
+'''Now apply train_test analysis on OLS using exracted features after scaling
+the necessary features. The split should be around 7:3 ratio, and make sure to
+include stratified option'''
+
+'''dfX2 is now our non-scaled feature matrix with dfY being the dependent variable
+vector. First repartition dfX2 into numerical and categorical parts'''
+dfX2_train, dfX2_test, dfY_train, dfY_test = train_test_split(dfX2, dfY, test_size = 0.3, random_state = 0)
+
+
+'''
+#Split into numerical anc categorical parts
+dfX2_train_numeric, dfX2_train_cat = num_cat_divider(dfX2_train, OLS_feature_extracted)
+dfX2_test_numeric, dfX2_test_cat = num_cat_divider(dfX2_test, OLS_feature_extracted)
+#Index saved for later proprocessing
+dfX2_train_index = list(dfX2_train_numeric.index.values)
+dfX2_test_index = list(dfX2_test_numeric.index.values)
+
+
+sc_dfx2 = StandardScaler()
+dfX2_train_numeric_sc = pd.DataFrame(sc_dfx2.fit_transform(dfX2_train_numeric), 
+                                     columns = dfX2_train_numeric.columns.values, index=dfX2_train_index)
+dfX2_test_numeric_sc = pd.DataFrame(sc_dfx2.transform(dfX2_test_numeric), 
+                                    columns = dfX2_test_numeric.columns.values, index=dfX2_test_index)
+
+dfX2_train_sc = pd.concat([dfX2_train_numeric_sc, dfX2_train_cat], axis = 1)
+dfX2_test_sc = pd.concat([dfX2_test_numeric_sc, dfX2_test_cat], axis = 1)
+'''
+
+'''OLS run for train and test runs respectively'''
+model_train = sm.OLS(dfY_train, dfX2_train)
+result_train = model_train.fit()
+print(result_train.summary())
+
+model_test = sm.OLS(dfY_test, dfX2_test)
+result_test = model_test.fit()
+print(result_test.summary())
