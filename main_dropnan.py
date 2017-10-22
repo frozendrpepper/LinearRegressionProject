@@ -65,6 +65,30 @@ def VIF_analysis(X):
     vif["VIF Factor"] = [variance_inflation_factor(X.values, i) for i in range(X.shape[1])]
     vif["features"] = X.columns
     return vif
+    
+def p_value_extract(result, confidence):
+    '''https://stackoverflow.com/questions/37787698/how-to-sort-pandas-dataframe-from-one-column'''
+    p_values = pd.DataFrame(result.pvalues)
+    p_values.columns = ['p_value']
+    p_values['p_value'] = p_values[p_values.p_value < confidence]
+    p_values = p_values.dropna().sort_values('p_value')
+    return p_values
+    
+def OLS_analysis(dfX, dfY, confidence, r2_compile = [], p_prev = 0):
+    model = sm.OLS(dfY, dfX)
+    result = model.fit()
+    r2_compile.append(result.rsquared_adj)
+    
+    p = p_value_extract(result, confidence)
+    p_shape = p.shape[0]
+    if int(p_prev) == int(p_shape):
+        return dfX, r2_compile, result
+    p_prev - p_shape
+
+    '''Rerun the OLS with extracted features'''
+    extracted_feature = list(p.index.values)
+    dfX_extract = dfX.loc[:, extracted_feature]
+    return OLS_analysis(dfX_extract, dfY, confidence, r2_compile, p_prev)
      
 '''Import the train and test data set'''
 data_train = pd.read_csv('train.csv')
@@ -126,9 +150,10 @@ X_drop = pd.concat([X_drop[numeric_list], X_drop[ord_categorical_list],
 '''Apply scaling to numeric value and declare a variable for the new standardized matrix'''
 sc = StandardScaler()
 X_drop_sc = X_drop[:]
-X_drop_sc[numeric_list] = sc.fit_transform(X_drop_sc[numeric_list])
+X_drop_sc[numeric_list + ord_categorical_list] = sc.fit_transform(X_drop_sc[numeric_list + ord_categorical_list])
 
 '''VIF analysis for features that are highly correlated'''
+'''Reference: http://support.minitab.com/en-us/minitab/17/topic-library/modeling-statistics/regression-and-correlation/model-assumptions/what-is-a-variance-inflation-factor-vif/'''
 vif_metro = VIF_analysis(X_drop_sc[['metro_min_avto', 'metro_km_avto', 'metro_km_walk', 'metro_min_walk']])
 vif_railroad_avto = VIF_analysis(X_drop_sc[['railroad_station_avto_min', 'railroad_station_avto_km']])
 vif_railroad_walk = VIF_analysis(X_drop_sc[['railroad_station_walk_min', 'railroad_station_walk_km']])
@@ -140,55 +165,56 @@ vif_population = VIF_analysis(X_drop_sc[['raion_popul', 'children_school', 'chil
                            '0_13_female']])
 
 '''Based on VIF analysis following features will be dropped'''
-vif_delete_list = list(vif_metro.loc[vif_metro['VIF Factor'] > 30, 'features']) + \
-                  list(vif_population.loc[vif_population['VIF Factor'] > 10**7 , 'features']) + \
-                  ['railroad_station_avto_km', 'railroad_station_walk_km']
+vif_delete_list = list(vif_metro.loc[vif_metro['VIF Factor'] > 10, 'features']) + \
+                  list(vif_population.loc[vif_population['VIF Factor'] > 10**7 , 'features'])
 
 '''Drop above features from X_drop and update the numeric list'''
 '''https://stackoverflow.com/questions/28538536/deleting-multiple-columns-in-pandas'''
-X_drop.drop(vif_delete_list, axis = 1, inplace = True)
+X_drop_sc.drop(vif_delete_list, axis = 1, inplace = True)
 numeric_list_vif = numeric_list[:]
 for item in vif_delete_list:
     numeric_list_vif.remove(item)
+    
+X_drop.drop(vif_delete_list, axis = 1, inplace = True)
 
 '''Compile a string that will be fed into sm.OLS.from_formula'''
-'''Certain features have to be combined, so I'll take care of them first'''
-spec_handle_cat = ['ID_metro', 'ID_railroad_station_walk', 'ID_railroad_station_avto', 'water_1line',
-                   'ID_big_road1', 'ID_big_road2', 'ID_railroad_terminal', 'ID_bus_terminal']
-spec_handle_real = ['metro_min_avto', 'railroad_station_walk_min', 'railroad_station_avto_min', 
-                    'water_km', 'big_road1_km', 'big_road2_km', 'railroad_km', 'bus_terminal_avto_km']
-    
-'''This is for special combined continuous and category list'''
-spec_handle_list = []
-for cat, real in zip(spec_handle_cat, spec_handle_real):
-    spec_handle_list.append("C(" + cat + "):" + real)
-'''Don't forget to add this!'''
-spec_handle_string = " + ".join(spec_handle_list)
-
-'''Get rid of values that were used in the special combined variable'''
-numeric_list_OLS = numeric_list_vif[:]
-nom_list_OLS = nom_categorical_list[:]
-for cat, real in zip(spec_handle_cat, spec_handle_real):
-    numeric_list_OLS.remove(real)
-    nom_list_OLS.remove(cat)
- 
 '''Handling numeric and ord categorical information. Add this too!'''
-numeric_ord_cat_OLS_string = " + ".join(numeric_list_OLS + ord_categorical_list)
+numeric_ord_cat_OLS_string = " + ".join(numeric_list_vif + ord_categorical_list)
 
 '''Handling the nominal categorical information with C()'''
 category_OLS_list = []
-for item in nom_list_OLS:
+for item in nom_categorical_list:
     category_OLS_list.append("C(" + item + ")")
 category_OLS_string = " + ".join(category_OLS_list) 
 
 '''This is the total string'''
-OLS_string = spec_handle_string + " + " + numeric_ord_cat_OLS_string + " + " + category_OLS_string
+OLS_string = numeric_ord_cat_OLS_string + " + " + category_OLS_string
 
+'''Create a dmatrix for encoding and extract the column variables so they can
+be used to access features with low p values'''
+'''https://stackoverflow.com/questions/23560104/fetching-names-from-designmatrix-in-patsy'''
+dfX = dmatrix(OLS_string, data = X_drop_sc)
+dfX_columns = dfX.design_info.column_names
+dfX = pd.DataFrame(dfX, columns = dfX_columns)
+
+dfY = pd.DataFrame(X_drop_sc['price_doc'])
 
 '''Finally first OLS run'''
-'''
-OLS_string_final = "price_doc ~ " + OLS_string
-model1 = sm.OLS.from_formula(OLS_string_final, data=X_drop)
-result1 = model1.fit()
-print(result1.summary())
-'''
+#model1 = sm.OLS(dfY, dfX)
+#result1 = model1.fit()
+#print(result1.summary())
+
+'''Extract lowest p values for confidence interval of 1%'''
+'''https://stackoverflow.com/questions/41075098/how-to-get-the-p-value-in-a-variable-from-olsresults-in-python
+https://stackoverflow.com/questions/12765833/counting-the-number-of-true-booleans-in-a-python-list'''
+#p_values1 = p_value_extract(result1, 0.05)
+
+'''Rerun the OLS with extracted features'''
+#extracted_feature1 = list(p_values1.index.values)
+#X_drop_sc_extract1 = dfX.loc[:, extracted_feature1]
+#dfX2 = X_drop_sc_extract1
+
+'''Second OLS after initial feature extraction'''
+#model2 = sm.OLS(dfY, dfX2)
+#result2 = model2.fit()
+#print(result2.summary())
