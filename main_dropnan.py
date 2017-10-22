@@ -200,21 +200,4 @@ dfX = pd.DataFrame(dfX, columns = dfX_columns)
 dfY = pd.DataFrame(X_drop_sc['price_doc'])
 
 '''Finally first OLS run'''
-#model1 = sm.OLS(dfY, dfX)
-#result1 = model1.fit()
-#print(result1.summary())
-
-'''Extract lowest p values for confidence interval of 1%'''
-'''https://stackoverflow.com/questions/41075098/how-to-get-the-p-value-in-a-variable-from-olsresults-in-python
-https://stackoverflow.com/questions/12765833/counting-the-number-of-true-booleans-in-a-python-list'''
-#p_values1 = p_value_extract(result1, 0.05)
-
-'''Rerun the OLS with extracted features'''
-#extracted_feature1 = list(p_values1.index.values)
-#X_drop_sc_extract1 = dfX.loc[:, extracted_feature1]
-#dfX2 = X_drop_sc_extract1
-
-'''Second OLS after initial feature extraction'''
-#model2 = sm.OLS(dfY, dfX2)
-#result2 = model2.fit()
-#print(result2.summary())
+dfX_ex, r2_compile, result_ex = OLS_analysis(dfX, dfY, 0.01)
