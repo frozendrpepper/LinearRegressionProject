@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Created on Thu Oct 19 23:37:20 2017
+Created on Mon Oct 23 16:19:59 2017
 
 @author: cck3
 """
@@ -11,8 +11,10 @@ from sklearn.linear_model import LinearRegression, Lasso, Ridge, ElasticNet, Log
 from sklearn.cross_validation import train_test_split
 from sklearn.preprocessing import Imputer, OneHotEncoder, LabelEncoder
 from statsmodels.stats.outliers_influence import variance_inflation_factor
+from sklearn.metrics import r2_score
 
 from patsy import dmatrix
+from scipy import stats
 
 import statsmodels.api as sm
 import seaborn as sns
@@ -91,22 +93,29 @@ def OLS_analysis(dfX, dfY, confidence, p_prev = 0, num_feature_compile = [], r2_
     p_shape = p.shape[0]
     if int(p_shape) == int(p_prev):
         end_loop = False
-    num_feature_compile.append(p.shape)
   
     extracted_feature = list(p.index.values)
+    num_feature_compile.append(extracted_feature)
     dfX_extract = dfX.loc[:, extracted_feature]
     return dfX_extract, result, r2_compile, num_feature_compile, p_shape, end_loop
 
 def num_cat_divider(X, feature):
     X_numeric, X_cat = [], []
     for item in feature:
-        if item == 'state' or item == 'floor':
+        if item == 'state':
             X_cat.append(item)
         elif len(X[item].unique()) > 2:
             X_numeric.append(item)
         else:
             X_cat.append(item)
     return X[X_numeric], X[X_cat]
+
+def outlier_crusher(result):
+    influence = result.get_influence()
+    cooks_d2, pvals = influence.cooks_distance
+    fox_cr = 4 / (len(dfY) - dfX2.shape[1] - 1)
+    idx = np.where(cooks_d2 > fox_cr)[0]
+    return idx
   
 '''Import the train and test data set'''
 data_train = pd.read_csv('train.csv')
@@ -160,6 +169,13 @@ filter_list = nom_categorical_list + ord_categorical_list + [target]
 numeric_list = list(X_drop.columns)
 for item in filter_list:
     numeric_list.remove(item)
+
+'''I've decided not to use the ID and sub_area category values'''
+nom_categorical_list = ['material', 'product_type',  
+                   'thermal_power_plant_raion', 'incineration_raion', 'oil_chemistry_raion', 'radiation_raion', 
+                   'railroad_terminal_raion', 'big_market_raion', 'nuclear_reactor_raion', 
+                   'detention_facility_raion', 'water_1line', 'big_road1_1line', 'railroad_1line', 
+                   'culture_objects_top_25']
     
 '''Re-partitioning the DataFrame numeric -> ord_cat -> nom_cat'''
 X_drop = pd.concat([X_drop[numeric_list], X_drop[ord_categorical_list], 
@@ -200,13 +216,17 @@ X_drop.drop(vif_delete_list, axis = 1, inplace = True)
 numeric_ord_cat_OLS_string = " + ".join(numeric_list_vif + ord_categorical_list)
 
 '''Handling the nominal categorical information with C()'''
-category_OLS_list = []
-for item in nom_categorical_list:
-    category_OLS_list.append("C(" + item + ")")
-category_OLS_string = " + ".join(category_OLS_list) 
+category_OLS_string = "C(material)"
+
+'''yes no categorical values don't need to be separately encoded'''
+yes_no_list = ['thermal_power_plant_raion', 'incineration_raion', 'oil_chemistry_raion', 'radiation_raion', 
+                   'railroad_terminal_raion', 'big_market_raion', 'nuclear_reactor_raion', 
+                   'detention_facility_raion', 'water_1line', 'big_road1_1line', 'railroad_1line', 
+                   'culture_objects_top_25', 'product_type']
+yes_no_OLS_string = " + ".join(yes_no_list)
 
 '''This is the total string'''
-OLS_string = numeric_ord_cat_OLS_string + " + " + category_OLS_string
+OLS_string = numeric_ord_cat_OLS_string + " + " + category_OLS_string + " + " + yes_no_OLS_string + " + 0"
 
 '''Create a dmatrix for encoding and extract the column variables so they can
 be used to access features with low p values'''
@@ -217,25 +237,28 @@ dfX = pd.DataFrame(dfX, columns = dfX_columns)
 
 dfY = pd.DataFrame(X_drop_sc['price_doc'])
 
-'''Feature extraction via multiple OLS runs'''
-dfX2, result, r2_compile, num_feature_compile, p_shape, end_loop= OLS_analysis(dfX, dfY, 0.01)
+'''Feature extraction via multiple OLS runs''' 
+dfX2, result, r2_list, num_feature_list, p_num, end_loop= OLS_analysis(dfX, dfY, 0.01)
 while end_loop:
-    dfX2, result, r2_compile, num_feature_compile, p_shape, end_loop = OLS_analysis(dfX2, dfY, 0.01, p_shape, r2_compile)
+    dfX2, result, r2_list, num_feature_list, p_num, end_loop = OLS_analysis(dfX2, dfY, 0.01, p_prev = p_num, num_feature_compile = num_feature_list, r2_compile = r2_list)
 OLS_feature_extracted = list(dfX2.columns.values)
 print(result.summary())
 
 '''Outlier extraction'''
-influence = result.get_influence()
-cooks_d2, pvals = influence.cooks_distance
-fox_cr = 4 / (len(y) - dfX2.shape[1] - 1)
-idx = np.where(cooks_d2 > fox_cr)[0]
+idx = outlier_crusher(result)
 
 '''https://stackoverflow.com/questions/39802076/pandas-drop-row-based-on-index-vs-ix'''
+
 dfX2_idx = dfX2.drop(idx)
 dfY_idx = dfY.drop(idx)
 
-dfX2, result_idex, r2_compile, num_feature_compile, p_shape, end_loop = OLS_analysis(dfX2_idx, dfY_idx, 0.01)
+model_idx = sm.OLS(dfY_idx, dfX2_idx)
+result_idx = model_idx.fit()
+print(result_idx.summary())
 
+'''After outlier removal big_market_km is having a high p value'''
+del dfX2_idx['big_market_km']
+OLS_feature_extracted.remove('big_market_km')
 
 '''Now apply train_test analysis on OLS using exracted features after scaling
 the necessary features. The split should be around 7:3 ratio, and make sure to
@@ -247,7 +270,7 @@ dfX2_train, dfX2_test, dfY_train, dfY_test = train_test_split(dfX2_idx, dfY_idx,
 
 
 '''
-#Split into numerical anc categorical parts
+#Split into numerical anc categorical parts'''
 dfX2_train_numeric, dfX2_train_cat = num_cat_divider(dfX2_train, OLS_feature_extracted)
 dfX2_test_numeric, dfX2_test_cat = num_cat_divider(dfX2_test, OLS_feature_extracted)
 #Index saved for later proprocessing
@@ -263,14 +286,25 @@ dfX2_test_numeric_sc = pd.DataFrame(sc_dfx2.transform(dfX2_test_numeric),
 
 dfX2_train_sc = pd.concat([dfX2_train_numeric_sc, dfX2_train_cat], axis = 1)
 dfX2_test_sc = pd.concat([dfX2_test_numeric_sc, dfX2_test_cat], axis = 1)
-'''
 
-'''OLS run for train and test runs respectively
-model_train = sm.OLS(dfY_train, dfX2_train)
+
+'''OLS run for train and test runs respectively'''
+model_train = sm.OLS(dfY_train, dfX2_train_sc)
 result_train = model_train.fit()
 print(result_train.summary())
 
-model_test = sm.OLS(dfY_test, dfX2_test)
-result_test = model_test.fit()
-print(result_test.summary())
-'''
+'''Reference: http://www.statsmodels.org/dev/examples/notebooks/generated/regression_plots.html'''
+'''Residual plot, Partial regression analysis and CCPR'''
+stats.probplot(result_train.resid, plot=plt)
+plt.show()
+
+fig = plt.figure(figsize = (30, 18))
+sm.graphics.plot_partregress_grid(result, fig=fig)
+fig.suptitle("")
+plt.show()
+
+
+fig = plt.figure(figsize = (50, 20))
+sm.graphics.plot_ccpr_grid(result, fig=fig)
+fig.suptitle("")
+plt.show()
